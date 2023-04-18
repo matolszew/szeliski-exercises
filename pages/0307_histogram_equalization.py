@@ -54,29 +54,28 @@ def histogram_equalization_page():
     if uploaded_file:
         file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        image_luma = image_hsv[:, :, 2]
 
         col1, col2 = st.columns(2)
 
         col1.image(image, caption="Original image", channels="BGR")
-        col1.image(image_gray, caption="Original grayscale image")
-        histogram = cv2.calcHist([image_gray], [0], None, [256], [0, 256])[:, 0]
+        col1.image(image_luma, caption="Original image luminance")
+        histogram = cv2.calcHist([image_luma], [0], None, [256], [0, 256])[:, 0]
         col1.bar_chart(histogram)
         cdf = cumulative_distribution(histogram)
         col1.line_chart(cdf)
 
-        equalized_grey_image = equalize_histogram(image_gray, cdf, punch, local_gain_limit)
-        equalized_histogram = cv2.calcHist([equalized_grey_image], [0], None, [256], [0, 256])[:, 0]
+        equalized_luma = equalize_histogram(image_luma, cdf, punch, local_gain_limit)
+        equalized_histogram = cv2.calcHist([equalized_luma], [0], None, [256], [0, 256])[:, 0]
         equalized_cdf = cumulative_distribution(equalized_histogram)
 
-        eqalized_image = np.zeros_like(image, dtype=np.float32)
-        luma_ratio = equalized_grey_image / image_gray
-        for axis in range(3):
-            color_ratio = image[:, :, axis] / np.sum(image, axis=2)
-            eqalized_image[:, :, axis] = luma_ratio * color_ratio
+        eqalized_image_hsv = np.copy(image_hsv)
+        eqalized_image_hsv[:, :, 2] = equalized_luma
+        eqalized_image = cv2.cvtColor(eqalized_image_hsv, cv2.COLOR_HSV2BGR)
 
         col2.image(eqalized_image, caption="Equalized image", channels="BGR")
-        col2.image(equalized_grey_image, caption="Image after histogram equalization")
+        col2.image(equalized_luma, caption="Equalized luminance")
         col2.bar_chart(equalized_histogram)
         col2.line_chart(equalized_cdf)
 
