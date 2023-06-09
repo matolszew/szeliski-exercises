@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 from matplotlib import cm
+from scipy.spatial.distance import cdist
 
 
 EXERCISE_DESC = """
@@ -75,8 +76,8 @@ def generate_sin(tab, tab_name):
 
 
 def generate_gaussian(tab, tab_name):
-    x = np.linspace(0, 512, 512)
-    y = np.linspace(0, 512, 512)
+    x = np.linspace(0, 511, 512)
+    y = np.linspace(0, 511, 512)
     xx, yy = np.meshgrid(x, y)
     with tab:
         col1, col2, col3 = st.columns(3)
@@ -133,11 +134,11 @@ def generate_gaussian(tab, tab_name):
 
 
 def generate_functions(n_sin, n_gauss):
-    x = np.linspace(0, 512, 512)
-    y = np.linspace(0, 512, 512)
+    x = np.linspace(0, 511, 512)
+    y = np.linspace(0, 511, 512)
     xx, yy = np.meshgrid(x, y)
     gt = np.zeros_like(xx)
-    with st.expander("Generate function"):
+    with st.expander("Adjust function"):
         tab_names = [f"sin_{i}" for i in range(n_sin)]
         tab_names.extend([f"gaussian_{i}" for i in range(n_gauss)])
         tabs = st.tabs(tab_names)
@@ -148,16 +149,14 @@ def generate_functions(n_sin, n_gauss):
             elif "gaussian" in tab_name:
                 gt += generate_gaussian(tab, tab_name)
 
+    st.subheader("Generated function")
     col1, col2 = st.columns(2)
     with col1:
         fig = plt.figure()
-        plt.imshow(gt)
+        plt.imshow(gt, cmap=cm.coolwarm)
         st.pyplot(fig)
 
     with col2:
-        x = np.linspace(0, 512, 512)
-        y = np.linspace(0, 512, 512)
-        xx, yy = np.meshgrid(x, y)
         fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
         ax.plot_surface(xx, yy, gt, cmap=cm.coolwarm)
         st.pyplot(fig)
@@ -166,11 +165,11 @@ def generate_functions(n_sin, n_gauss):
 
 
 def get_samples(gt, n_samples):
-    sample_idx = np.random.randint(512, size=(2, 256))
+    sample_idx = np.random.randint(512, size=(2, n_samples))
     sample_values = gt[sample_idx[0], sample_idx[1]]
 
+    st.subheader("Sampled function")
     col1, col2 = st.columns(2)
-
     with col1:
         fig = plt.figure()
         plt.scatter(sample_idx[0], sample_idx[1], c=sample_values, cmap=cm.coolwarm)
@@ -186,6 +185,18 @@ def get_samples(gt, n_samples):
     return sample_idx, sample_values
 
 
+def get_basis_function_distance(radial_dist, basis_function, c):
+    match basis_function:
+        case "Gaussian":
+            return np.exp(-(radial_dist**2) / c**2)
+        case "Hardy multiquadratic":
+            return np.sqrt(radial_dist**2 + c**2)
+        case "Inverse multiquadratic":
+            return 1 / np.sqrt(radial_dist**2 + c**2)
+        case "Thin plate spline":
+            return (radial_dist**2) * np.log(radial_dist)
+
+
 def data_fitting_page():
     n_sin = st.sidebar.number_input(
         "No of sinus functions",
@@ -199,10 +210,42 @@ def data_fitting_page():
 
     n_samples = st.sidebar.number_input(
         "No of samples",
-        min_value=64,
+        min_value=16,
         max_value=262144
     )
-    sample_idx, sample_values = get_samples(gt, n_samples)
+    inputs, targets = get_samples(gt, n_samples)
+
+    basis_function = st.sidebar.selectbox(
+        "basis function",
+        ["Gaussian", "Hardy multiquadratic", "Inverse multiquadratic", "Thin plate spline"]
+    )
+    c = st.sidebar.number_input("c", min_value=0.1, value=100.0)
+    radial_dist = cdist(inputs.T, inputs.T, metric="euclidean")
+    basis_function_dist = get_basis_function_distance(radial_dist, basis_function, c)
+
+    weights = np.linalg.inv(basis_function_dist) @ targets
+
+    interpolated_data = np.empty((512, 512))
+    for i in range(512):
+        for j in range(512):
+            radial_dist = cdist(inputs.T, [[i, j]])
+            basis_function_dist = get_basis_function_distance(radial_dist, basis_function,c)
+            interpolated_data[i, j] = weights @ basis_function_dist
+
+    st.subheader("Interpolated function")
+    col1, col2 = st.columns(2)
+    with col1:
+        fig = plt.figure()
+        plt.imshow(interpolated_data, cmap=cm.coolwarm)
+        st.pyplot(fig)
+
+    with col2:
+        x = np.linspace(0, 511, 512)
+        y = np.linspace(0, 511, 512)
+        xx, yy = np.meshgrid(x, y)
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        ax.plot_surface(xx, yy, interpolated_data, cmap=cm.coolwarm)
+        st.pyplot(fig)
 
 
 if __name__ == "__main__":
